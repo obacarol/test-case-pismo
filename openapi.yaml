@@ -1,0 +1,295 @@
+openapi: 3.0.3
+info:
+  title: Transactions
+  version: 1.0.0
+  description: Cardholder accounts and transactions API (technical case).
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Database is reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthOk"
+              example:
+                status: ok
+        "503":
+          description: Database is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: service_unavailable
+                message: database unavailable
+
+  /accounts:
+    post:
+      summary: Create account
+      operationId: createAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+            example:
+              document_number: "12345678900"
+      responses:
+        "201":
+          description: Account created
+          headers:
+            Location:
+              schema:
+                type: string
+              example: /accounts/1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Document number already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: document_number_already_exists
+                message: document number already exists
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
+  /accounts/{accountId}:
+    get:
+      summary: Get account
+      operationId: getAccount
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Account found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: account_not_found
+                message: account not found
+
+  /transactions:
+    post:
+      summary: Create transaction
+      operationId: createTransaction
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionRequest"
+            example:
+              account_id: 1
+              operation_type_id: 1
+              amount: 50.0
+      responses:
+        "201":
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "200":
+          description: Idempotent replay of the same request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: account_not_found
+                message: account not found
+        "409":
+          description: Idempotency key already used with a different body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: idempotency_key_already_used
+                message: idempotency key already used
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
+components:
+  schemas:
+    HealthOk:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          examples:
+            - invalid_request
+            - invalid_document_number
+            - invalid_amount
+            - invalid_operation_type
+            - invalid_idempotency_key
+            - account_not_found
+            - document_number_already_exists
+            - idempotency_key_already_used
+            - request_body_too_large
+            - unsupported_media_type
+            - service_unavailable
+            - internal_error
+        message:
+          type: string
+
+    Account:
+      type: object
+      required: [account_id, document_number]
+      properties:
+        account_id:
+          type: integer
+          format: int64
+        document_number:
+          type: string
+
+    CreateAccountRequest:
+      type: object
+      required: [document_number]
+      additionalProperties: false
+      properties:
+        document_number:
+          type: string
+          minLength: 1
+          maxLength: 36
+
+    CreateTransactionRequest:
+      type: object
+      required: [account_id, operation_type_id, amount]
+      additionalProperties: false
+      properties:
+        account_id:
+          type: integer
+          format: int64
+          minimum: 1
+        operation_type_id:
+          type: integer
+          enum: [1, 2, 3, 4]
+          description: |
+            1 purchase (stored negative),
+            2 installment purchase (stored negative),
+            3 withdrawal (stored negative),
+            4 credit (stored positive).
+        amount:
+          type: number
+          exclusiveMinimum: 0
+          multipleOf: 0.01
+          description: Positive magnitude; the server applies the sign.
+
+    Transaction:
+      type: object
+      required: [transaction_id, account_id, operation_type_id, amount, event_date]
+      properties:
+        transaction_id:
+          type: integer
+          format: int64
+        account_id:
+          type: integer
+          format: int64
+        operation_type_id:
+          type: integer
+          enum: [1, 2, 3, 4]
+        amount:
+          type: number
+          description: Signed amount after operation-type rules.
+        event_date:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Validation or malformed request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            invalid_request:
+              value:
+                code: invalid_request
+                message: invalid request
+            invalid_amount:
+              value:
+                code: invalid_amount
+                message: invalid amount
+            invalid_idempotency_key:
+              value:
+                code: invalid_idempotency_key
+                message: invalid idempotency key
+    BodyTooLarge:
+      description: Request body larger than 4 KiB
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: request_body_too_large
+            message: request body too large
+    UnsupportedMediaType:
+      description: Content-Type must be application/json
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: unsupported_media_type
+            message: content type must be application/json

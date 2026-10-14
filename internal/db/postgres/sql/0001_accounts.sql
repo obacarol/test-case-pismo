@@ -1,0 +1,4 @@
+CREATE TABLE accounts (
+    account_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_number TEXT NOT NULL UNIQUE
+);
